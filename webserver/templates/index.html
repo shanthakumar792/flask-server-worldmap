@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Threat Map</title>
+    <!-- Local ECharts library -->
+    <script src="{{ url_for('static', filename='echarts-5.5.0/dist/echarts.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='echarts-5.5.0/test/data/map/js/world.js') }}"></script>
+    <script src="{{ url_for('static', filename='echarts-5.5.0/dist/extension/dataTool.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='echarts-5.5.0/dist/extension/bmap.min.js') }}"></script>
+    <!-- Local Socket.IO library -->
+    <script src="{{ url_for('static', filename='socket.io.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+
+    <style>
+        @font-face {
+            font-family: 'Roboto';
+            src: url('{{ url_for('static', filename='fonts/Roboto/Roboto-Regular.ttf') }}') format('truetype');
+            font-weight: normal;
+            font-style: normal;
+        }
+
+        @font-face {
+            font-family: 'Roboto';
+            src: url('{{ url_for('static', filename='fonts/Roboto/Roboto-Bold.ttf') }}') format('truetype');
+            font-weight: bold;
+            font-style: normal;
+        }
+
+        @font-face {
+            font-family: 'Roboto';
+            src: url('{{ url_for('static', filename='fonts/Roboto/Roboto-Italic.ttf') }}') format('truetype');
+            font-weight: normal;
+            font-style: italic;
+        }
+
+        body {
+            margin: 0;
+            font-family: 'Roboto', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            background: linear-gradient(to right, #0f2027, #203a43, #2c5364);
+            color: #fff;
+        }
+
+        #container {
+            display: flex;
+            justify-content: space-between;
+            width: 95%;
+            height: 95%;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        #main {
+            flex: 1;
+            width: 78%;
+            height: 100%;
+            position: relative;
+            overflow: visible;
+            background-color: #1f2933;
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
+            border-radius: 15px;
+            padding: 0;
+            margin-right: 20px;
+            box-sizing: border-box;
+        }
+
+        #right-panel {
+            width: 22%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            background-color: #1f2933;
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
+            border-radius: 15px;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        .panel {
+            margin-bottom: 10px; /* Reduced margin */
+            background-color: #2c3e50;
+            border-radius: 10px; /* Smaller radius for a more compact look */
+            padding: 10px; /* Reduced padding */
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+
+        .panel h2 {
+            font-size: 20px;
+            font-weight: bold;
+            color: #ecf0f1;
+            margin-bottom: 15px;
+        }
+
+        .panel table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .panel th,
+        .panel td {
+            border: 1px solid #34495e;
+            padding: 10px;
+            text-align: left;
+            color: #ecf0f1;
+        }
+
+        .panel th {
+            background-color: #34495e;
+        }
+
+        .incidents-list {
+            list-style-type: none;
+            padding: 0;
+            margin: 0;
+            max-height: 200px;
+            overflow-y: auto;
+            color: #ecf0f1;
+        }
+
+        .legend {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr); /* Creates two columns with equal width */
+            gap: 10px; /* Adjusts the spacing between grid items */
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 5px; /* Keeps a small margin at the bottom of each item */
+        }
+
+        .legend-color {
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            margin-right: 10px; /* Space between the color box and the text */
+            display: inline-block;
+        }
+
+        #client-devices {
+            width: 90%;
+            background-color: #1f2933;
+            border-top: 2px solid #34495e;
+            padding: 20px;
+            display: flex;
+            justify-content: flex-start;
+            align-items: center;
+            box-shadow: 0 -2px 4px rgba(0, 0, 0, 0.3);
+            border-radius: 15px 15px 0 0;
+        }
+
+        .device {
+            width: 120px;
+            height: 120px;
+            background-color: #34495e;
+            border: 2px solid #1abc9c;
+            margin: 10px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            border-radius: 15px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+            transition: transform 0.3s;
+            color: #ecf0f1;
+        }
+
+        .device:hover {
+            transform: scale(1.05);
+        }
+
+        .device-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .device-label {
+            font-size: 14px;
+        }
+
+        .plane {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            background-color: rgb(255, 247, 0);
+            border-radius: 50%;
+            z-index: 2;
+            pointer-events: none;
+        }
+
+        .contrail {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            background-color: rgba(111, 255, 0, 0.5);
+            z-index: 1;
+            pointer-events: none;
+        }
+
+        @keyframes sparkEffect1 {
+            0% {
+                box-shadow: 0 0 8px rgba(255, 255, 255, 0.8);
+            }
+            50% {
+                box-shadow: 0 0 20px rgba(0, 255, 0, 1);
+            }
+            100% {
+                box-shadow: 0 0 8px rgba(255, 255, 255, 0.8);
+            }
+        }
+        @keyframes sparkEffect2 {
+            0% {
+                box-shadow: 0 0 8px rgba(255, 255, 255, 0.8);
+            }
+            50% {
+                box-shadow: 0 0 20px rgba(255, 0, 0, 1);
+            }
+            100% {
+                box-shadow: 0 0 8px rgba(255, 255, 255, 0.8);
+            }
+        }
+
+        .device-spark1 {
+            animation: sparkEffect1 500ms ease-out;
+        }
+        .device-spark2 {
+            animation: sparkEffect2 500ms ease-out;
+        }
+
+    </style>
+</head>
+
+<body>
+    <div id="container">
+        <div id="main"></div>
+        <div id="right-panel">
+            <div class="panel">
+                <h2>Infected Hosts</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Host</th>
+                            <th>Score</th>
+                            <th>Hits</th>
+                        </tr>
+                    </thead>
+                    <tbody id="infected-hosts-body">
+                        <!-- Rows will be dynamically added here -->
+                        <tr>
+                            <td>10.60.1.234</td>
+                            <td>7</td>
+                            <td>123</td>
+                        </tr>
+                        <tr>
+                            <td>10.60.2.19</td>
+                            <td>7</td>
+                            <td>105</td>
+                        </tr>
+                        <tr>
+                            <td>10.60.2.175</td>
+                            <td>5</td>
+                            <td>94</td>
+                        </tr>
+                        <tr>
+                            <td>10.60.1.240</td>
+                            <td>4</td>
+                            <td>90</td>
+                        </tr>
+                        <tr>
+                            <td>10.60.1.240</td>
+                            <td>3</td>
+                            <td>76</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="panel">
+                <h2>Event Types</h2>
+                <div class="legend">
+                    <div class="legend-item"><span class="legend-color" style="background-color: rgba(0, 255, 255, 100.5);"></span> Clean</div>
+                    <div class="legend-item"><span class="legend-color" style="background-color: rgb(255, 0, 0);"></span> Malware</div>
+                    <div class="legend-item"><span class="legend-color" style="background-color: rgb(255, 128, 0);"></span> C&C</div>
+                    <div class="legend-item"><span class="legend-color" style="background-color: rgb(255, 0, 255);"></span> ETA</div>
+                    <div class="legend-item"><span class="legend-color" style="background-color: rgb(255, 128, 255);"></span> DNS</div>
+                    <div class="legend-item"><span class="legend-color" style="background-color: rgb(255, 0, 155);"></span> Reverse Shell</div>
+                </div>
+            </div>
+            <div class="panel">
+                <h2>Threat Events</h2>
+                <ul class="incidents-list" id="incidents-list">
+                    <!-- Incidents will be dynamically added here -->
+                    <li>Incident 1</li>
+                    <li>Incident 2</li>
+                    <li>Incident 3</li>
+                    <li>Incident 4</li>
+                    <li>Incident 5</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+    <div id="client-devices">
+        <div class="device">
+            <div class="device-title">Device1</div>
+            <div class="device-label">Device desc 1</div>
+        </div>
+        <div class="device">
+            <div class="device-title">Device2</div>
+            <div class="device-label">Device desc 2</div>
+        </div>
+        <div class="device">
+            <div class="device-title">Device3</div>
+            <div class="device-label">Device desc 3</div>
+        </div>
+    </div>
+</body>
+
+</html>
